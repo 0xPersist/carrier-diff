@@ -1,0 +1,6 @@
+# Captures contain device and subscriber identifiers. Never commit them.
+*.txt
+!requirements.txt
+*.json
+owner*
+secondary*
