@@ -16,6 +16,18 @@ not have that Owner does? Answering it by eyeballing two multi-thousand-line
 `dumpsys` outputs is error-prone. This tool structures the comparison and
 ranks registration/service-state differences first.
 
+## Finding this tool was built from
+
+On a Pixel 10 Pro running GrapheneOS with an MVNO eSIM, outgoing calls failed in every secondary profile while mobile data worked normally in the same profile. The first run of this diff isolated it.
+
+mVoiceRegState was 0 (IN_SERVICE) in Owner and 1 (OUT_OF_SERVICE) in the secondary profile. getRilVoiceRadioTechnology was LTE in Owner and Unknown in secondary. Data registration and physical channel configs were healthy in both. CarrierConfigLoader bound the carrier's own app in Owner but only the platform default in secondary (config version 8161 versus 37). The carrier's config block, VoLTE availability, WFC and IMS entitlement, and ePDG addresses, was present only in the Owner dump.
+
+Mechanism: Android installs apps per user. A carrier that delivers config through its own carrier app does not reach secondary profiles, so IMS never enables and voice registration cannot complete on a VoLTE-only network. Data uses a different path, which is why it keeps working and masks the cause.
+
+Workaround, verified: adb shell pm install-existing --user <id> <carrier.app.package>, then reboot.
+
+Reported upstream as GrapheneOS os-issue-tracker issue #8454.
+
 ## Usage
 
 **1. Capture both profiles** (requires adb, USB debugging enabled in each
