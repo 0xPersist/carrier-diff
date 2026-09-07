@@ -86,23 +86,33 @@ MAX_KEYS = 250_000
 # Keys whose values are personal or trackable identifiers. Redacted by
 # default in all output; each value is replaced with a short hash so diffs
 # still show WHETHER values differ without exposing WHAT they are.
+# Matched case-insensitively as substrings of the key. AOSP spells the same
+# field several ways across dumpsys surfaces (mIccId, mIccid, ICCID), so
+# casing must never decide whether an identifier is protected.
 SENSITIVE_KEY_PARTS = (
-    "mCallIncomingNumber",
-    "mCallForwardingNumber",
-    "line1Number",
-    "IncomingNumber",
-    "OutgoingNumber",
+    "callincomingnumber",
+    "callforwardingnumber",
+    "incomingnumber",
+    "outgoingnumber",
+    "callnumber",
+    "phonenumber",
+    "line1number",
+    "msisdn",
     "iccid",
-    "Iccid",
     "imsi",
-    "Imsi",
     "imei",
-    "Imei",
-    "subscriberId",
-    "mCellIdentity",
-    "CellIdentity",
     "meid",
-    "Meid",
+    "subscriberid",
+    "cellidentity",
+    "cardid",
+)
+
+# Short cell-identity tokens. These are deliberately NOT substring-matched:
+# "ci" alone would redact "capacity", "tac" would redact "contact". They are
+# compared against the key's final dotted segment, with an optional leading
+# "m" stripped for AOSP's member-variable naming (mCi -> ci).
+SENSITIVE_KEY_EXACT = (
+    "ci", "cid", "lac", "tac", "pci", "eid", "nai", "earfcn",
 )
 
 CTRL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
@@ -205,7 +215,10 @@ def store(cap: Capture, key: str, value: str, depth: int = 0) -> bool:
     # exploder fully understanding the value's shape. If a sensitive token
     # appears anywhere in the raw value (deeper than the explosion depth
     # cap, or inside a shape we can't parse), force-redact this key.
-    value_sensitive = any(part in value for part in SENSITIVE_KEY_PARTS)
+    # Substring parts only: the short exact tokens are far too ambiguous to
+    # match inside a free-text value.
+    value_lower = value.lower()
+    value_sensitive = any(part in value_lower for part in SENSITIVE_KEY_PARTS)
     if (child_sensitive or value_sensitive) and not self_sensitive:
         cap.sensitive.add(key)
     return self_sensitive or child_sensitive or value_sensitive
@@ -317,7 +330,12 @@ def sanitize(s: str) -> str:
 
 
 def is_sensitive_key(key: str) -> bool:
-    return any(part in key for part in SENSITIVE_KEY_PARTS)
+    k = key.lower()
+    if any(part in k for part in SENSITIVE_KEY_PARTS):
+        return True
+    leaf = k.rsplit(".", 1)[-1]
+    bare = leaf[1:] if leaf.startswith("m") and len(leaf) > 1 else leaf
+    return leaf in SENSITIVE_KEY_EXACT or bare in SENSITIVE_KEY_EXACT
 
 
 def redact(key: str, value: str, enabled: bool, forced: set) -> str:
