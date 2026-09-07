@@ -71,15 +71,23 @@ keys, then keys present in only one capture.
 This tool treats capture files as **untrusted input** and its own output as
 **potentially public**. Concretely:
 
-- **Redaction by default.** Values for sensitive identifier keys (call
-  numbers, ICCID/IMSI/IMEI, subscriber IDs, cell identity) are replaced
-  with `[REDACTED:<hash8>]` in all output. Sensitivity is tainted through
-  compound values: a parent whose raw value embeds a sensitive field
-  (e.g. ServiceState containing CellIdentity) is force-redacted too, and
-  a value-level token scan enforces this even for shapes the exploder
-  cannot parse. The hash preserves diff semantics: you can see the values
-  differ without exposing them. Use `--no-redact` only for local
-  analysis.
+- **Redaction by default, but not comprehensive.** Values whose key
+  matches the known-sensitive token list are replaced with
+  `[REDACTED:<hash8>]`. Sensitivity is tainted through compound values: a
+  parent whose raw value embeds a sensitive field (e.g. ServiceState
+  containing CellIdentity) is force-redacted too, and a value-level token
+  scan enforces this even for shapes the exploder cannot parse. The hash
+  preserves diff semantics: you can see the values differ without exposing
+  them. Use `--no-redact` only for local analysis.
+
+  **Measured coverage.** The token list is matched as a case-sensitive
+  substring of the key name, so keys are covered only if they match an
+  entry exactly. As it stands `mImsi`, `mImei` and `mIccid` are redacted,
+  and identifiers nested inside a tainted compound are redacted. But
+  `mCallNumber`, `mIccId` (the spelling AOSP actually emits), `mSubscriberId`,
+  `mLine1Number`, `mMsisdn` and a bare `mCi` are **not** — they print in
+  the clear. Do not treat the default output as safe to publish without
+  reading it.
 - **Terminal escape injection defense.** All control characters in values
   are rendered as visible `\xNN` escapes. A crafted capture cannot
   manipulate your terminal through the diff output.
@@ -102,9 +110,15 @@ before posting publicly regardless.
 
 A regression suite (`run_tests.py`, 20 checks) covers functional parsing,
 escape injection, redaction and compound-taint propagation, resource-bomb
-guards, hash integrity, path traversal, and symlink handling. An
-end-to-end harness with a mock adb exercises capture.sh's full runtime
-path.
+guards, hash integrity, path traversal, and symlink handling.
+
+Run it from the repository root — it invokes `carrier_diff.py` by relative
+path and writes its fixtures into the working directory.
+
+**Known failures:** four of the twenty checks (group T6) reference capture
+fixtures that are not committed and are not generated at runtime, so a
+fresh checkout reports `16 passed, 4 failed`. Groups T1-T5 pass and are the
+meaningful coverage today.
 
 ## Notes
 
@@ -113,7 +127,8 @@ path.
   device's output. Regression-tested against synthetic AOSP-format fixtures (nested ServiceState, Bundle-packed config, per-phone blocks, CRLF). Validated against live Pixel 10 Pro (GrapheneOS) captures, where it isolated a per-profile carrier-app provisioning failure on first run. Dumpsys local-log history lines are filtered as noise.
 - Captures can contain identifiers (IMSI-adjacent values, ICCID, cell IDs,
   operator numerics). Review before sharing captures or diff output
-  publicly. The diff output truncates values but does not redact them.
+  publicly. Diff output redacts only the key names the token list matches,
+  so treat both captures and diffs as sensitive.
 - No dependencies beyond the Python standard library. Runs on Python 3.8+
   (annotations deferred via __future__ import; validated on macOS system
   Python and 3.12).
